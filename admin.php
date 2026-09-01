@@ -27,6 +27,19 @@ $template->assign(
   )
 );
 
+// meme tabsheet que la page native Outils > Synchroniser, onglet "Synchro Rapide"
+// actif : l'evenement tabsheet_before_select reconstruit la liste complete
+// (Synchronisation + Gestionnaire de sites via add_core_tabs, + notre onglet via
+// syncfast_add_sync_tab) pour garder l'acces aux autres onglets depuis notre page.
+// add_core_tabs() lit $my_base_url en global (cf. admin/include/add_core_tabs.inc.php)
+include_once(PHPWG_ROOT_PATH . 'admin/include/tabsheet.class.php');
+$my_base_url = get_root_url() . 'admin.php?page=';
+
+$tabsheet = new tabsheet();
+$tabsheet->set_id('site_update');
+$tabsheet->select('sync_fast');
+$tabsheet->assign();
+
 $template->set_filenames(
   array(
     'plugin_admin_content' => SYNCFAST_PATH . 'template/sync.tpl',

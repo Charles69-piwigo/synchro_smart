@@ -108,7 +108,7 @@ function syncfast_advance_phase(&$state, $site_id)
       ? syncfast_get_all_local_category_ids($site_id)
       : syncfast_resolve_scope($state['checked_ids'], $site_id, $state['recursive']);
 
-    if ($state['mode'] === 'files')
+    if ($state['operation'] === 'files')
     {
       $state['files_queue'] = $state['cat_ids'];
       $state['files_total'] = count($state['cat_ids']);
@@ -126,9 +126,11 @@ function syncfast_advance_phase(&$state, $site_id)
   }
 }
 
+// 'files' enchaine une passe meta des NOUVELLES photos (date_metadata_update
+// IS NULL) ; 'meta' traite TOUTES les photos du perimetre ; 'dirs' s'arrete la
 function syncfast_enter_meta_or_done(&$state)
 {
-  if ($state['sync_meta'])
+  if ($state['operation'] === 'files' || $state['operation'] === 'meta')
   {
     // en mode "meta seule" (pas de scan repertoires/fichiers), aucune ligne
     // n'a encore alimente le compteur albums_analyzed : on le renseigne ici
@@ -137,7 +139,8 @@ function syncfast_enter_meta_or_done(&$state)
     {
       $state['counters']['albums_analyzed'] = count($state['cat_ids']);
     }
-    $state['meta_total'] = syncfast_count_meta_targets($state['cat_ids'], !$state['meta_all']);
+    $only_new = ($state['operation'] === 'files');
+    $state['meta_total'] = syncfast_count_meta_targets($state['cat_ids'], $only_new);
     $state['meta_index'] = 0;
     $state['phase'] = 'meta';
   }
@@ -165,16 +168,22 @@ if ($action === 'start')
   $checked_ids = isset($_POST['cat_ids']) && is_array($_POST['cat_ids']) ? $_POST['cat_ids'] : array();
   $checked_ids = array_values(array_unique(array_filter(array_map('intval', $checked_ids))));
 
-  $mode = isset($_POST['mode']) && in_array($_POST['mode'], array('dirs', 'files'), true) ? $_POST['mode'] : '';
-  $sync_meta = !empty($_POST['sync_meta']);
-  $meta_all = !empty($_POST['meta_all']);
-  $meta_reset = !empty($_POST['meta_reset']);
+  // choix unique (radio) : dirs = repertoires seuls ; files = repertoires +
+  // fichiers + meta des nouvelles photos ; meta = mise a jour meta de toutes
+  // les photos deja en base, avec les options champ par champ ci-dessous
+  $operation = isset($_POST['operation']) && in_array($_POST['operation'], array('dirs', 'files', 'meta'), true) ? $_POST['operation'] : '';
+  $meta_desc = !empty($_POST['meta_desc']);
+  $meta_desc_keep_rich = !empty($_POST['meta_desc_keep_rich']);
+  $meta_title = !empty($_POST['meta_title']);
+  $meta_author = !empty($_POST['meta_author']);
+  $meta_tags = !empty($_POST['meta_tags']);
+  $meta_tags_merge = !empty($_POST['meta_tags_merge']);
   $recursive = !empty($_POST['recursive']);
   // demande explicite du front (aucun album coche, confirmee par l'admin ou
   // amorce de la toute premiere synchro) : traiter ./galleries en totalite
   $root_sync = !empty($_POST['root_sync']);
 
-  if ((empty($checked_ids) && !$root_sync) || (!$mode && !$sync_meta) || $site_id <= 0)
+  if ((empty($checked_ids) && !$root_sync) || !$operation || $site_id <= 0)
   {
     $response['message'] = l10n('Please select at least one album and one synchronization option.');
   }
@@ -188,10 +197,13 @@ if ($action === 'start')
 
     $state = array(
       'site_id' => $site_id,
-      'mode' => $mode,
-      'sync_meta' => $sync_meta,
-      'meta_all' => $meta_all,
-      'meta_reset' => $meta_reset,
+      'operation' => $operation,
+      'meta_desc' => $meta_desc,
+      'meta_desc_keep_rich' => $meta_desc_keep_rich,
+      'meta_title' => $meta_title,
+      'meta_author' => $meta_author,
+      'meta_tags' => $meta_tags,
+      'meta_tags_merge' => $meta_tags_merge,
       'recursive' => $recursive,
       'root_sync' => $root_sync,
       'checked_ids' => $checked_ids,
@@ -220,7 +232,7 @@ if ($action === 'start')
       'error_details' => array(),
     );
 
-    if ($mode === 'dirs' || $mode === 'files')
+    if ($operation === 'dirs' || $operation === 'files')
     {
       // cat_id 0 = racine du site (aucune categorie precise), voir
       // syncfast_scan_directories_for_album() / syncfast_get_site_root_dir()
@@ -306,20 +318,47 @@ elseif ($action === 'chunk')
     elseif ($state['phase'] === 'meta' && $state['meta_index'] < $state['meta_total'])
     {
       $site_reader = syncfast_get_site_reader($site_id);
-      // en mode "only_new" (!$meta_all), la requete filtre sur
-      // date_metadata_update IS NULL : chaque lot traite retire ses lignes de
-      // ce filtre, donc le jeu de resultats retrecit au fil des lots. Utiliser
-      // un OFFSET qui avance (meta_index) dans un ensemble qui retrecit revient
-      // a sauter des lignes non traitees a chaque lot. On repart donc toujours
-      // de 0 dans ce mode ; en mode meta_all le filtre est stable (pas de
-      // condition sur date_metadata_update) donc l'offset classique est correct.
-      $query_offset = $state['meta_all'] ? $state['meta_index'] : 0;
+
+      // operation 'files' : passe meta des NOUVELLES photos uniquement
+      // (date_metadata_update IS NULL). Le filtre retrecit a chaque lot traite,
+      // donc un OFFSET qui avance sauterait des lignes : on reste a 0.
+      // operation 'meta' : filtre stable (toutes les photos), OFFSET classique.
+      $is_files_pass = ($state['operation'] === 'files');
+      $only_new = $is_files_pass;
+      $query_offset = $only_new ? 0 : $state['meta_index'];
+
+      if ($is_files_pass)
+      {
+        // nouvelles photos : remplir uniquement les champs vides + importer les
+        // mots-cles en fusion (jamais de suppression, au cas ou la photo aurait
+        // deja des tags poses avant cette premiere passe meta)
+        $meta_opts = array(
+          'update_description' => false,
+          'keep_rich_description' => false,
+          'update_title' => false,
+          'update_author' => false,
+          'update_tags' => true,
+          'merge_tags' => true,
+        );
+      }
+      else
+      {
+        $meta_opts = array(
+          'update_description' => !empty($state['meta_desc']),
+          'keep_rich_description' => !empty($state['meta_desc_keep_rich']),
+          'update_title' => !empty($state['meta_title']),
+          'update_author' => !empty($state['meta_author']),
+          'update_tags' => !empty($state['meta_tags']),
+          'merge_tags' => !empty($state['meta_tags_merge']),
+        );
+      }
+
       $r = syncfast_sync_metadata_batch(
         $state['cat_ids'],
         $query_offset,
         SYNCFAST_META_CHUNK_SIZE,
-        !$state['meta_all'],
-        $state['meta_reset'],
+        $only_new,
+        $meta_opts,
         $site_reader
       );
 

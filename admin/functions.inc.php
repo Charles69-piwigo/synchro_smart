@@ -651,7 +651,18 @@ SELECT COUNT(*)
   return (int) $total;
 }
 
-function syncfast_sync_metadata_batch($cat_ids, $offset, $limit, $only_new, $overwrite_existing, $site_reader)
+// $opts (tous des booleens) pilote l'ecriture champ par champ :
+//   update_description / keep_rich_description / update_title / update_author
+//   update_tags / merge_tags
+// Regle par defaut (option decochee) pour comment/name/author : on ne remplit que
+// si le champ est vide en base (jamais d'ecrasement d'une saisie faite dans Piwigo).
+// Option cochee : on ecrase aussi une valeur existante. GPS : jamais d'ecrasement
+// d'une position deja enregistree.
+// Tags : intouches sauf update_tags. Alors : merge_tags => on ajoute les mots-cles
+// du fichier sans rien retirer (add_tags) ; sinon la liste du fichier remplace
+// tout (set_tags_of), en preservant les tags visages face_tag (fichier sans
+// mot-cle => tous les tags hors visages retires).
+function syncfast_sync_metadata_batch($cat_ids, $offset, $limit, $only_new, $opts, $site_reader)
 {
   $result = array('updated' => 0, 'errors' => 0, 'last_file' => '', 'error_details' => array());
 
@@ -660,8 +671,21 @@ function syncfast_sync_metadata_batch($cat_ids, $offset, $limit, $only_new, $ove
     return $result;
   }
 
+  $update_description = !empty($opts['update_description']);
+  $keep_rich_description = !empty($opts['keep_rich_description']);
+  $update_title = !empty($opts['update_title']);
+  $update_author = !empty($opts['update_author']);
+  $update_tags = !empty($opts['update_tags']);
+  // fusion : on ajoute les mots-cles du fichier sans rien retirer. Sinon
+  // remplacement : la liste du fichier remplace tout, mais on preserve les
+  // tags visages (face_tag stocke ses tags dans les memes tables Piwigo).
+  $merge_tags = !empty($opts['merge_tags']);
+
+  // colonnes base relues en plus des infos passees au reader : servent uniquement
+  // a decider, ligne par ligne, si on a le droit d'ecrire (champ vide ? deja du
+  // HTML ? position GPS deja saisie ?)
   $query = '
-SELECT id, path, representative_ext
+SELECT id, path, representative_ext, comment, name, author, latitude, longitude
   FROM ' . IMAGES_TABLE . '
   WHERE storage_category_id IN (' . implode(',', array_map('intval', $cat_ids)) . ')
 ';
@@ -677,64 +701,173 @@ SELECT id, path, representative_ext
 
   $files = hash_from_query($query, 'id');
 
+  // tags visages deja poses sur ces photos (face_tag) : a preserver lors d'un
+  // remplacement de mots-cles. Dependance douce : si face_tag n'est pas actif,
+  // la constante n'existe pas et on ne protege rien de particulier.
+  $face_tags_of = array();
+  if (!empty($files) && $update_tags && !$merge_tags && defined('FACETAG_PERSON_TAGS_TABLE'))
+  {
+    $fquery = '
+SELECT it.image_id, it.tag_id
+  FROM ' . IMAGE_TAG_TABLE . ' it
+  JOIN ' . FACETAG_PERSON_TAGS_TABLE . ' fpt ON fpt.tag_id = it.tag_id AND fpt.is_face_tag = 1
+  WHERE it.image_id IN (' . implode(',', array_map('intval', array_keys($files))) . ')
+;';
+    $fres = pwg_query($fquery);
+    while ($frow = pwg_db_fetch_assoc($fres))
+    {
+      $face_tags_of[(int) $frow['image_id']][] = (int) $frow['tag_id'];
+    }
+  }
+
   $datas = array();
-  $tags_of = array();
+  $tags_of = array();       // remplacement (set_tags_of)
+  $merge_tags_of = array(); // fusion (add_tags)
   $last_file = '';
 
-  foreach ($files as $id => $element_infos)
+  foreach ($files as $id => $db_row)
   {
-    $data = $site_reader->get_element_metadata($element_infos);
-    $last_file = basename($element_infos['path']);
+    $last_file = basename($db_row['path']);
 
-    if (is_array($data))
+    // ne transmettre au reader que ce dont get_sync_metadata() a besoin :
+    // s'il recevait comment/name/... il les renverrait tels quels quand le
+    // fichier n'a rien, ce qui rendrait indiscernable "fourni par le fichier"
+    // de "deja en base"
+    $reader_infos = array(
+      'id' => $id,
+      'path' => $db_row['path'],
+      'representative_ext' => $db_row['representative_ext'],
+    );
+
+    $data = $site_reader->get_element_metadata($reader_infos);
+
+    if (!is_array($data))
     {
-      $data['date_metadata_update'] = CURRENT_DATE;
-      $data['id'] = $id;
-      $datas[] = $data;
+      $result['errors']++;
+      $result['error_details'][] = array('path' => $db_row['path'], 'type' => 'metadata_failed');
+      continue;
+    }
 
+    // une chaine vide venue de l'IPTC ne doit jamais compter comme une valeur
+    // (sinon la branche "table temporaire" de mass_updates l'ecrirait)
+    foreach (array('comment', 'name', 'author') as $k)
+    {
+      if (isset($data[$k]) && trim((string) $data[$k]) === '')
+      {
+        unset($data[$k]);
+      }
+    }
+
+    // description
+    if (isset($data['comment']))
+    {
+      $db_comment = (string) $db_row['comment'];
+      if (!$update_description)
+      {
+        if (trim($db_comment) !== '')
+        {
+          unset($data['comment']);
+        }
+      }
+      elseif ($keep_rich_description && $db_comment !== '' && strip_tags($db_comment) !== $db_comment)
+      {
+        unset($data['comment']);
+      }
+    }
+
+    // titre
+    if (isset($data['name']) && !$update_title && trim((string) $db_row['name']) !== '')
+    {
+      unset($data['name']);
+    }
+
+    // auteur
+    if (isset($data['author']) && !$update_author && trim((string) $db_row['author']) !== '')
+    {
+      unset($data['author']);
+    }
+
+    // GPS : ne jamais ecraser une position deja enregistree en base
+    if ($db_row['latitude'] !== null && $db_row['latitude'] !== '')
+    {
+      unset($data['latitude'], $data['longitude']);
+    }
+
+    // tags : uniquement sur demande explicite ($update_tags)
+    if ($update_tags)
+    {
+      $file_tag_ids = array();
       foreach (array('keywords', 'tags') as $key)
       {
-        if (isset($data[$key]))
+        if (isset($data[$key]) && trim((string) $data[$key]) !== '')
         {
-          if (!isset($tags_of[$id]))
-          {
-            $tags_of[$id] = array();
-          }
           foreach (explode(',', $data[$key]) as $tag_name)
           {
-            $tags_of[$id][] = tag_id_from_tag_name($tag_name);
+            $tag_name = trim($tag_name);
+            if ($tag_name !== '')
+            {
+              $file_tag_ids[] = tag_id_from_tag_name($tag_name);
+            }
           }
         }
       }
+      $file_tag_ids = array_values(array_unique($file_tag_ids));
+
+      if ($merge_tags)
+      {
+        // fusion : additif, on ne retire rien
+        if (!empty($file_tag_ids))
+        {
+          $merge_tags_of[$id] = $file_tag_ids;
+        }
+      }
+      else
+      {
+        // remplacement : liste du fichier + tags visages a preserver.
+        // tableau vide accepte : set_tags_of retire alors tous les tags
+        // (hors visages) de la photo.
+        $keep = isset($face_tags_of[$id]) ? $face_tags_of[$id] : array();
+        $tags_of[$id] = array_values(array_unique(array_merge($file_tag_ids, $keep)));
+      }
     }
-    else
-    {
-      $result['errors']++;
-      $result['error_details'][] = array('path' => $element_infos['path'], 'type' => 'metadata_failed');
-    }
+
+    $data['date_metadata_update'] = CURRENT_DATE;
+    $data['id'] = $id;
+    $datas[] = $data;
   }
 
   if (!empty($datas))
   {
+    // comment/name/author restent dans la liste des que la config du site les
+    // fournit : l'option ne pilote que le gating par ligne ci-dessus (remplir si
+    // vide meme sans option), SKIP_EMPTY garde le reste
+    $update_fields = array_values(array_intersect(
+      array('filesize', 'width', 'height', 'date_creation', 'latitude', 'longitude', 'comment', 'name', 'author', 'date_metadata_update'),
+      array_merge($site_reader->get_metadata_attributes(), array('date_metadata_update'))
+    ));
+
     mass_updates(
       IMAGES_TABLE,
       array(
         'primary' => array('id'),
-        'update' => array_unique(
-          array_merge(
-            array_diff($site_reader->get_metadata_attributes(), array('keywords', 'tags')),
-            array('date_metadata_update')
-          )
-        ),
+        'update' => $update_fields,
       ),
       $datas,
-      $overwrite_existing ? 0 : MASS_UPDATES_SKIP_EMPTY
+      MASS_UPDATES_SKIP_EMPTY
     );
   }
 
   if (!empty($tags_of))
   {
     set_tags_of($tags_of);
+  }
+
+  if (!empty($merge_tags_of))
+  {
+    foreach ($merge_tags_of as $img_id => $tids)
+    {
+      add_tags($tids, array((int) $img_id));
+    }
   }
 
   $result['updated'] = count($datas);

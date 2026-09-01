@@ -14,6 +14,9 @@
   #sf-wrap .sf-suboptions { margin-left: 24px; margin-top: 6px; }
   #sf-wrap .sf-suboptions label { display: block; margin: 4px 0; font-weight: normal; }
   #sf-wrap label.sf-main-option { display: block; margin: 6px 0; font-weight: bold; }
+  #sf-wrap .sf-option-note { color: #888; font-weight: normal; font-size: 0.9em; }
+  #sf-wrap .sf-option-hint { margin: 2px 0 8px 24px; color: #888; font-size: 0.85em; font-style: italic; }
+  #sf-wrap .sf-suboptions .sf-option-hint { margin-left: 0; }
   #sf-wrap .sf-album-path { color: #888; font-size: 0.85em; margin-left: 8px; }
   #sf-wrap .sf-album-row { padding: 3px 8px; white-space: nowrap; cursor: pointer; border-radius: 3px; }
   #sf-wrap .sf-album-row:hover { background: #f2f2f2; }
@@ -68,17 +71,30 @@
     <legend>{'Synchronization scope'|@translate}</legend>
 
     <label class="sf-main-option">
-      <input type="checkbox" id="sf-mode-dirs"> {'Répertoires uniquement'|@translate}
+      <input type="radio" name="sf-operation" value="dirs"> {'Répertoires uniquement'|@translate}
     </label>
+
     <label class="sf-main-option">
-      <input type="checkbox" id="sf-mode-files"> {'Répertoires + fichiers'|@translate}
+      <input type="radio" name="sf-operation" value="files" checked> {'Répertoires + fichiers'|@translate}
     </label>
+    <p class="sf-option-hint">{'crée / supprime les albums et les photos, puis lit les méta-données des nouvelles photos'|@translate}</p>
+
     <label class="sf-main-option">
-      <input type="checkbox" id="sf-sync-meta"> {'Synchroniser les méta-données'|@translate}
+      <input type="radio" name="sf-operation" value="meta"> {'Mise à jour des méta-données'|@translate}
+      <span class="sf-option-note">{'(photos déjà en base)'|@translate}</span>
     </label>
     <div class="sf-suboptions" id="sf-meta-suboptions" style="display:none;">
-      <label><input type="checkbox" id="sf-meta-all"> {'Même les photos déjà synchronisées'|@translate}</label>
-      <label><input type="checkbox" id="sf-meta-reset"> {'Initialiser les données existantes'|@translate}</label>
+      <label><input type="checkbox" id="sf-meta-desc"> {'Mettre à jour la description'|@translate}</label>
+      <div class="sf-suboptions" id="sf-meta-desc-suboptions" style="display:none;">
+        <label><input type="checkbox" id="sf-meta-desc-keep-rich"> {'Sauf si la description est enrichie (HTML)'|@translate}</label>
+      </div>
+      <label><input type="checkbox" id="sf-meta-title"> {'Mettre à jour le titre'|@translate}</label>
+      <label><input type="checkbox" id="sf-meta-author"> {'Mettre à jour l\'auteur'|@translate}</label>
+      <label><input type="checkbox" id="sf-meta-tags"> {'Mettre à jour les mots-clés'|@translate}</label>
+      <p class="sf-option-hint">{'remplace par ceux du fichier ; les tags visages sont préservés'|@translate}</p>
+      <div class="sf-suboptions" id="sf-meta-tags-suboptions" style="display:none;">
+        <label><input type="checkbox" id="sf-meta-tags-merge"> {'Fusionner : ajouter sans supprimer les mots-clés absents du fichier'|@translate}</label>
+      </div>
     </div>
 
     <label class="sf-main-option" style="margin-top:14px;">
@@ -173,13 +189,24 @@
     }
   };
 
-  var $modeDirs = document.getElementById('sf-mode-dirs');
-  var $modeFiles = document.getElementById('sf-mode-files');
-  var $syncMeta = document.getElementById('sf-sync-meta');
+  var $operationRadios = document.querySelectorAll('input[name="sf-operation"]');
   var $metaSub = document.getElementById('sf-meta-suboptions');
-  var $metaAll = document.getElementById('sf-meta-all');
-  var $metaReset = document.getElementById('sf-meta-reset');
+  var $metaDesc = document.getElementById('sf-meta-desc');
+  var $metaDescSub = document.getElementById('sf-meta-desc-suboptions');
+  var $metaDescKeepRich = document.getElementById('sf-meta-desc-keep-rich');
+  var $metaTitle = document.getElementById('sf-meta-title');
+  var $metaAuthor = document.getElementById('sf-meta-author');
+  var $metaTags = document.getElementById('sf-meta-tags');
+  var $metaTagsSub = document.getElementById('sf-meta-tags-suboptions');
+  var $metaTagsMerge = document.getElementById('sf-meta-tags-merge');
   var $recursive = document.getElementById('sf-recursive');
+
+  function selectedOperation() {
+    for (var i = 0; i < $operationRadios.length; i++) {
+      if ($operationRadios[i].checked) { return $operationRadios[i].value; }
+    }
+    return '';
+  }
   var $startBtn = document.getElementById('sf-start');
   var $stopBtn = document.getElementById('sf-stop');
   var $alert = document.getElementById('sf-alert');
@@ -196,14 +223,22 @@
 
   var stopRequested = false;
 
-  $modeDirs.addEventListener('change', function() {
-    if (this.checked) { $modeFiles.checked = false; }
+  // les sous-options meta ne concernent que le choix "Mise à jour des méta-données"
+  function refreshMetaOptions() {
+    $metaSub.style.display = (selectedOperation() === 'meta') ? 'block' : 'none';
+  }
+  for (var oi = 0; oi < $operationRadios.length; oi++) {
+    $operationRadios[oi].addEventListener('change', refreshMetaOptions);
+  }
+  refreshMetaOptions();
+
+  $metaDesc.addEventListener('change', function() {
+    $metaDescSub.style.display = this.checked ? 'block' : 'none';
+    if (!this.checked) { $metaDescKeepRich.checked = false; }
   });
-  $modeFiles.addEventListener('change', function() {
-    if (this.checked) { $modeDirs.checked = false; }
-  });
-  $syncMeta.addEventListener('change', function() {
-    $metaSub.style.display = this.checked ? 'block' : 'none';
+  $metaTags.addEventListener('change', function() {
+    $metaTagsSub.style.display = this.checked ? 'block' : 'none';
+    if (!this.checked) { $metaTagsMerge.checked = false; }
   });
   // retrouve les lignes ancetres d'une ligne en remontant l'ordre prefixe
   // (parent toujours avant ses enfants dans le DOM) via la profondeur
@@ -473,22 +508,20 @@
     showAlert('');
     hideSuccessBanner();
     var albumIds = getCheckedAlbumIds();
-    var mode = $modeDirs.checked ? 'dirs' : ($modeFiles.checked ? 'files' : '');
-    var syncMeta = $syncMeta.checked;
+    var operation = selectedOperation();
     var rootSync = false;
     var noAlbumsAtAll = document.querySelectorAll('.sf-album-row').length === 0;
 
     if (albumIds.length === 0 && noAlbumsAtAll) {
       // toute premiere synchronisation : aucun album n'existe encore en base,
-      // donc rien a cocher. On amorce directement sur ./galleries en mode
+      // donc rien a cocher. On amorce directement sur ./galleries en
       // "repertoires uniquement" (les fichiers/meta-donnees suivront lors
       // d'un prochain lancement, une fois les albums crees) sans demander de
       // confirmation puisqu'il n'y a pas d'autre choix possible.
       rootSync = true;
-      mode = 'dirs';
-      syncMeta = false;
+      operation = 'dirs';
     } else {
-      if (!mode && !syncMeta) {
+      if (!operation) {
         showAlert(L.selectOption);
         return;
       }
@@ -514,10 +547,13 @@
 
     postApi('syncfast_start', {
       cat_ids: albumIds,
-      mode: mode,
-      sync_meta: syncMeta ? '1' : '',
-      meta_all: $metaAll.checked ? '1' : '',
-      meta_reset: $metaReset.checked ? '1' : '',
+      operation: operation,
+      meta_desc: $metaDesc.checked ? '1' : '',
+      meta_desc_keep_rich: $metaDescKeepRich.checked ? '1' : '',
+      meta_title: $metaTitle.checked ? '1' : '',
+      meta_author: $metaAuthor.checked ? '1' : '',
+      meta_tags: $metaTags.checked ? '1' : '',
+      meta_tags_merge: $metaTagsMerge.checked ? '1' : '',
       recursive: $recursive.checked ? '1' : '',
       root_sync: rootSync ? '1' : ''
     }).then(function(data) {

@@ -1,7 +1,7 @@
 <?php
 /*
 Plugin Name: synchro_fast
-Version: 1.0
+Version: 1.1
 Description: Synchronisation par lots (anti-timeout 504) avec selection d'albums. Ajoute un onglet "Synchro Rapide" dans Outils > Synchroniser.
 Plugin URI:
 Author: Charles69
@@ -9,6 +9,23 @@ Author: Charles69
 
 //============= VERSIONS ============================================
 /*
+
+version 1.1 - 01/09/2026
+  Périmètre en 3 choix exclusifs (boutons radio) :
+  - "Répertoires uniquement"
+  - "Répertoires + fichiers" : enchaîne la lecture des méta-données des nouvelles photos
+  - "Mise à jour des méta-données" : toutes les photos déjà en base, avec les options par champ
+  Options par champ : "Mettre à jour la description / le titre / l'auteur / les mots-clés"
+  - décoché : ne remplit que si le champ est vide en base (protège les saisies Piwigo)
+  - coché : écrase aussi une valeur existante
+  - sous-option "Sauf si la description est enrichie (HTML)"
+  GPS : mis à jour automatiquement, mais ne remplace jamais une position déjà enregistrée
+  Mots-clés : préservation des tags visages (face_tag) lors d'un remplacement,
+  + sous-option "Fusionner" (ajout sans suppression via add_tags)
+  Suppression des cases "Initialiser les données existantes" et
+  "Même les photos déjà synchronisées" (implicites selon le choix)
+  Onglet "Synchro Rapide" : affiche la barre d'onglets native (retour possible
+  vers Synchronisation / Gestionnaire de sites)
 
 version 1.0 - 22/08/2026
   Création du plugin

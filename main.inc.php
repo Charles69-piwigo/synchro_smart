@@ -1,7 +1,7 @@
 <?php
 /*
 Plugin Name: synchro_fast
-Version: 1.1
+Version: 1.2
 Description: Synchronisation par lots (anti-timeout 504) avec selection d'albums. Ajoute un onglet "Synchro Rapide" dans Outils > Synchroniser.
 Plugin URI:
 Author: Charles69
@@ -9,6 +9,22 @@ Author: Charles69
 
 //============= VERSIONS ============================================
 /*
+
+version 1.2 - 10/09/2026
+  Ne recycle plus les id de catégories : allocation au-dessus du
+  plus-haut-id-historique (AUTO_INCREMENT de la table) au lieu de MAX(id)+1.
+  Un renommage de répertoire = delete + add ; avec MAX(id)+1 le nouveau
+  répertoire héritait de l'id de l'ancien, et un filtre SmartAlbums de type
+  "album" pointait alors silencieusement un autre album (résultats faux) ou,
+  en cond="none" sur un id devenu absent, matchait toutes les photos (flood
+  de piwigo_image_category).
+  Filtres SmartAlbums "album" : instantané filtre -> chemin absolu pris avant
+  la synchro ; après, un filtre dont l'album cible réapparaît exactement au
+  même chemin est recalé sur le nouvel id, les autres (renommages) sont
+  listés dans le rapport pour re-pointage manuel. Aucune suppression de
+  filtre, aucune réécriture d'un filtre encore valide.
+  Avertissement si des id de tags libérés vont être réutilisés par Piwigo
+  (fenêtre AUTO_INCREMENT > MAX(id)+1 sur la table des tags).
 
 version 1.1 - 01/09/2026
   Périmètre en 3 choix exclusifs (boutons radio) :

@@ -61,6 +61,12 @@
   #sf-errors li { margin: 2px 0; font-size: 0.85em; word-break: break-all; }
   #sf-errors li .sf-error-reason { color: #555; }
   #sf-errors p.sf-errors-hint { margin-top: 8px; font-style: italic; }
+  #sf-filter-review { display: none; margin-top: 12px; margin-left: 26px; padding: 10px; border: 1px solid #f0c48a; background: #fff4e8; color: #7a4a11; border-radius: 4px; max-width: 700px; }
+  #sf-filter-review p { margin: 0 0 6px; }
+  #sf-filter-review ul { margin: 0; padding-left: 18px; max-height: 220px; overflow-y: auto; }
+  #sf-filter-review li { margin: 2px 0; font-size: 0.85em; word-break: break-all; }
+  #sf-filter-review li .sf-review-meta { color: #555; }
+  #sf-filter-review p.sf-filter-review-hint { margin-top: 8px; font-style: italic; }
   #sf-wrap .sf-toggle { display: inline-block; width: 14px; text-align: center; cursor: pointer; color: #888; user-select: none; font-size: 10px; }
   .sf-toggle-spacer { display: inline-block; width: 14px; }
 </style>
@@ -141,6 +147,13 @@
     <p class="sf-errors-hint">{'Corrigez le(s) nom(s) ci-dessus puis relancez la synchronisation.'|@translate}</p>
   </div>
 
+  <div id="sf-filter-review">
+    <p><strong>{'Filtres SmartAlbums à revoir'|@translate}</strong></p>
+    <ul id="sf-filter-review-list"></ul>
+    <p id="sf-filter-review-truncated" style="display:none;"></p>
+    <p class="sf-filter-review-hint">{'Ces filtres « album » ciblaient un répertoire qui a disparu (renommé ou supprimé). Re-sélectionnez l\'album cible dans la configuration du SmartAlbum concerné.'|@translate}</p>
+  </div>
+
   <div id="sf-progress-wrap">
     <div id="sf-progress-bar-track">
       <div id="sf-progress-bar-fill"></div>
@@ -177,6 +190,8 @@
       missing_dir: '{'répertoire introuvable ou inaccessible'|@translate|escape:'javascript'}',
       metadata_failed: '{'échec de lecture des méta-données'|@translate|escape:'javascript'}'
     },
+    tagRecycleWarning: '{'Attention : %d identifiant(s) de tag libéré(s) seront réutilisés par Piwigo au prochain nouveau mot-clé ; ne purgez pas les tags orphelins sans revérifier vos filtres SmartAlbums.'|@translate|escape:'javascript'}',
+    filterReviewTruncated: '{'et %d autre(s) filtre(s) non affiché(s)...'|@translate|escape:'javascript'}',
     counterLabels: {
       albums_analyzed: '{'Albums analysés'|@translate|escape:'javascript'}',
       created_categories: '{'Albums créés'|@translate|escape:'javascript'}',
@@ -185,6 +200,8 @@
       new_images: '{'Nouvelles photos'|@translate|escape:'javascript'}',
       deleted_images: '{'Photos supprimées'|@translate|escape:'javascript'}',
       meta_updated: '{'Méta-données mises à jour'|@translate|escape:'javascript'}',
+      album_filters_fixed: '{'Filtres album recalés'|@translate|escape:'javascript'}',
+      album_filters_review: '{'Filtres album à revoir'|@translate|escape:'javascript'}',
       errors: '{'Erreurs'|@translate|escape:'javascript'}'
     }
   };
@@ -213,6 +230,9 @@
   var $errors = document.getElementById('sf-errors');
   var $errorsList = document.getElementById('sf-errors-list');
   var $errorsTruncated = document.getElementById('sf-errors-truncated');
+  var $filterReview = document.getElementById('sf-filter-review');
+  var $filterReviewList = document.getElementById('sf-filter-review-list');
+  var $filterReviewTruncated = document.getElementById('sf-filter-review-truncated');
   var $progressWrap = document.getElementById('sf-progress-wrap');
   var $barFill = document.getElementById('sf-progress-bar-fill');
   var $status = document.getElementById('sf-status');
@@ -372,7 +392,7 @@
   var COUNTER_ORDER = [
     'albums_analyzed', 'created_categories', 'deleted_categories',
     'files_analyzed', 'new_images', 'deleted_images',
-    'meta_updated', 'errors'
+    'meta_updated', 'album_filters_fixed', 'album_filters_review', 'errors'
   ];
 
   function updateCounters(counters) {
@@ -421,6 +441,31 @@
     return div.innerHTML;
   }
 
+  // filtres SmartAlbums 'album' dont le répertoire cible a disparu (renommage) :
+  // non modifiés automatiquement, listés pour re-pointage manuel
+  function updateFilterReview(list, total) {
+    if (!list || list.length === 0) {
+      $filterReview.style.display = 'none';
+      $filterReviewList.innerHTML = '';
+      $filterReviewTruncated.style.display = 'none';
+      return;
+    }
+    $filterReviewList.innerHTML = list.map(function(d) {
+      var label = d.breadcrumb || d.smart_album || '?';
+      return '<li>' + escapeHtml(label) +
+        ' <span class="sf-review-meta">(' + escapeHtml(d.cond || '') + ')</span>' +
+        (d.path ? ' — ' + escapeHtml(d.path) : '') + '</li>';
+    }).join('');
+    var remaining = Math.max(Number(total || 0) - list.length, 0);
+    if (remaining > 0) {
+      $filterReviewTruncated.textContent = L.filterReviewTruncated.replace('%d', remaining);
+      $filterReviewTruncated.style.display = 'block';
+    } else {
+      $filterReviewTruncated.style.display = 'none';
+    }
+    $filterReview.style.display = 'block';
+  }
+
   function updateProgress(payload) {
     var total = Number(payload.phase_total || 0);
     var index = Number(payload.phase_index || 0);
@@ -437,6 +482,10 @@
     $status.textContent = statusText;
     updateCounters(payload.counters);
     updateErrorDetails(payload.error_details, payload.error_details_truncated, payload.counters && payload.counters.errors);
+    updateFilterReview(payload.filter_review, payload.counters && payload.counters.album_filters_review);
+    if (payload.done && Number(payload.tag_recycle_window || 0) > 0) {
+      showAlert(L.tagRecycleWarning.replace('%d', Number(payload.tag_recycle_window)));
+    }
   }
 
   function postApi(action, extraData) {
@@ -544,6 +593,7 @@
     $status.textContent = L.starting;
     updateCounters(null);
     updateErrorDetails(null);
+    updateFilterReview(null);
 
     postApi('syncfast_start', {
       cat_ids: albumIds,

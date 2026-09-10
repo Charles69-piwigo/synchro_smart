@@ -60,6 +60,8 @@ function syncfast_progress_payload($state, $extra = array())
     'counters' => $state['counters'],
     'error_details' => $state['error_details'],
     'error_details_truncated' => $state['counters']['errors'] > count($state['error_details']),
+    'filter_review' => isset($state['filter_review']) ? $state['filter_review'] : array(),
+    'tag_recycle_window' => isset($state['tag_recycle_window']) ? (int) $state['tag_recycle_window'] : 0,
     'done' => $state['phase'] === 'done',
   );
 
@@ -227,6 +229,8 @@ if ($action === 'start')
         'new_images' => 0,
         'deleted_images' => 0,
         'meta_updated' => 0,
+        'album_filters_fixed' => 0,
+        'album_filters_review' => 0,
         'errors' => 0,
       ),
       'error_details' => array(),
@@ -234,6 +238,12 @@ if ($action === 'start')
 
     if ($operation === 'dirs' || $operation === 'files')
     {
+      // mémorise le chemin absolu de chaque cible de filtre SmartAlbums 'album'
+      // AVANT toute création/suppression de catégorie ; la réparation en fin de
+      // synchro s'en sert pour recaler un filtre dont l'album cible réapparaît
+      // au même chemin avec un nouvel id — cf. syncfast_repair_album_filters()
+      syncfast_record_album_filter_paths($site_id);
+
       // cat_id 0 = racine du site (aucune categorie precise), voir
       // syncfast_scan_directories_for_album() / syncfast_get_site_root_dir()
       $state['dirs_queue'] = $root_sync ? array(0) : $checked_ids;
@@ -381,11 +391,30 @@ elseif ($action === 'chunk')
       $state['phase'] = 'done';
     }
 
-    $_SESSION[SYNCFAST_SESSION_KEY] = $state;
-
     if ($state['phase'] === 'done')
     {
+      // synchro terminée : recale les filtres SmartAlbums 'album' dont l'album
+      // cible est réapparu au même chemin avec un nouvel id, signale les autres
+      // (dirs/files seulement : une synchro meta ne touche pas les catégories)
+      if ($state['operation'] === 'dirs' || $state['operation'] === 'files')
+      {
+        $repair = syncfast_repair_album_filters($site_id);
+        $state['counters']['album_filters_fixed'] = $repair['fixed'];
+        $state['counters']['album_filters_review'] = count($repair['review']);
+        $state['filter_review'] = array_slice($repair['review'], 0, SYNCFAST_MAX_ERROR_DETAILS);
+
+        $tag_window = syncfast_tag_recycle_window();
+        if ($tag_window > 0)
+        {
+          $state['tag_recycle_window'] = $tag_window;
+        }
+      }
+
       unset($_SESSION[SYNCFAST_SESSION_KEY]);
+    }
+    else
+    {
+      $_SESSION[SYNCFAST_SESSION_KEY] = $state;
     }
 
     $response = array_merge(

@@ -213,6 +213,371 @@ SELECT id
   return $ids;
 }
 
+// -----------------------------------------------------------------------
+// Allocation d'id sans recyclage + filets SmartAlbums
+// -----------------------------------------------------------------------
+
+// pwg_db_nextval() du coeur Piwigo = MAX(id)+1 : reattribue l'id d'une categorie
+// des qu'elle etait la plus haute et qu'on la supprime. Un renommage de
+// repertoire etant vu par la synchro comme delete + add, le nouveau repertoire
+// herite alors de l'id de l'ancien -> tout filtre SmartAlbums de type 'album'
+// qui referencait cet id pointe silencieusement un autre album (resultats
+// "n'importe quoi"), ou, en cond='none' sur un id devenu absent, matche TOUTES
+// les photos (flood de piwigo_image_category). On alloue donc au-dessus du
+// plus-haut-id-jamais-attribue : la valeur AUTO_INCREMENT de la table, que
+// MyISAM ne redescend jamais sur DELETE. Un id supprime reste ainsi
+// definitivement mort (le filtre casse devient visiblement casse, jamais
+// subtilement faux) et syncfast_repair_album_filters() peut le recaler par
+// chemin le cas echeant.
+function syncfast_hwm_nextval($table, $id_col = 'id')
+{
+  $next = (int) pwg_db_nextval($id_col, $table);
+
+  $query = '
+SELECT AUTO_INCREMENT
+  FROM information_schema.TABLES
+  WHERE TABLE_SCHEMA = DATABASE()
+    AND TABLE_NAME = \'' . $table . '\'
+;';
+  $row = pwg_db_fetch_row(pwg_query($query));
+  $auto_increment = (isset($row[0]) && $row[0] !== null) ? (int) $row[0] : 0;
+
+  return max($next, $auto_increment);
+}
+
+// Fenetre de recyclage d'id de tags : AUTO_INCREMENT de TAGS_TABLE au-dela de
+// MAX(id)+1 => des id hauts ont ete liberes (typiquement une purge des tags
+// orphelins) et le coeur Piwigo (create_tag = MAX(id)+1) les reattribuera au
+// prochain nouveau mot-cle. Un filtre SmartAlbums type 'tags' pourrait alors
+// pointer un autre tag. On ne reecrit pas le coeur : on signale (compteur nul
+// aujourd'hui sur cette install).
+function syncfast_tag_recycle_window()
+{
+  if (!defined('TAGS_TABLE'))
+  {
+    return 0;
+  }
+
+  $query = '
+SELECT AUTO_INCREMENT
+  FROM information_schema.TABLES
+  WHERE TABLE_SCHEMA = DATABASE()
+    AND TABLE_NAME = \'' . TAGS_TABLE . '\'
+;';
+  $row = pwg_db_fetch_row(pwg_query($query));
+  $auto_increment = (isset($row[0]) && $row[0] !== null) ? (int) $row[0] : 0;
+
+  list($max_id) = pwg_db_fetch_row(pwg_query('SELECT IFNULL(MAX(id), 0) FROM ' . TAGS_TABLE . ';'));
+
+  $window = $auto_increment - ((int) $max_id + 1);
+
+  return $window > 0 ? $window : 0;
+}
+
+// nom de la table des filtres SmartAlbums, ou null si le plugin n'est pas la
+function syncfast_category_filters_table()
+{
+  if (defined('CATEGORY_FILTERS_TABLE'))
+  {
+    return CATEGORY_FILTERS_TABLE;
+  }
+
+  global $prefixeTable;
+  $table = $prefixeTable . 'category_filters';
+
+  return pwg_db_num_rows(pwg_query('SHOW TABLES LIKE \'' . $table . '\'')) ? $table : null;
+}
+
+// Memoire persistante id-de-token -> chemin absolu des filtres SmartAlbums de
+// type 'album', stockee comme un seul parametre serialise dans piwigo_config
+// (meme pratique que SmartAlbums / bulk_sync_manager pour leur config). Forme :
+//   array( '<filter_id>' => array( '<token_id>' => '<fulldir>', ... ), ... )
+// Persistante car le cas utile (repertoire hors-ligne puis re-en-ligne) se joue
+// sur DEUX synchros distinctes : la 1re supprime la categorie, la 2nde la
+// recree avec un nouvel id — il faut se souvenir du chemin d'origine entre les
+// deux pour recaler le filtre.
+define('SYNCFAST_FILTER_PATHS_PARAM', 'syncfast_album_filter_paths');
+
+function syncfast_album_filter_paths_load()
+{
+  global $conf;
+  $raw = isset($conf[SYNCFAST_FILTER_PATHS_PARAM]) ? $conf[SYNCFAST_FILTER_PATHS_PARAM] : '';
+  if (!is_string($raw) || $raw === '')
+  {
+    return array();
+  }
+  $map = @unserialize($raw);
+
+  return is_array($map) ? $map : array();
+}
+
+function syncfast_album_filter_paths_save($map)
+{
+  conf_update_param(SYNCFAST_FILTER_PATHS_PARAM, $map, true);
+}
+
+// lit les filtres 'album' courants -> array( filter_id => array(
+//   'category_id','smart_name','smart_uppercats','cond','recursive','tokens'=>[int,...] ) )
+function syncfast_album_filters_parsed($table)
+{
+  $query = '
+SELECT cf.id, cf.category_id, cf.cond, cf.value, c.name AS smart_name, c.uppercats AS smart_uppercats
+  FROM ' . $table . ' cf
+  LEFT JOIN ' . CATEGORIES_TABLE . ' c ON c.id = cf.category_id
+  WHERE cf.type = \'album\'
+;';
+  $result = pwg_query($query);
+
+  $filters = array();
+  while ($row = pwg_db_fetch_assoc($result))
+  {
+    $parts = explode(',', (string) $row['value']);
+    $recursive = array_shift($parts); // 1er token = 'true' | 'false'
+    $tokens = array();
+    foreach ($parts as $p)
+    {
+      $p = trim($p);
+      if ($p !== '' && ctype_digit($p))
+      {
+        $tokens[] = (int) $p;
+      }
+    }
+    $filters[(int) $row['id']] = array(
+      'category_id' => (int) $row['category_id'],
+      'smart_name' => $row['smart_name'],
+      'smart_uppercats' => (string) $row['smart_uppercats'],
+      'cond' => $row['cond'],
+      'recursive' => ($recursive === 'true') ? 'true' : 'false',
+      'tokens' => $tokens,
+    );
+  }
+
+  return $filters;
+}
+
+// fil d'Ariane d'un smart album depuis son uppercats ("id,id,id" finissant par
+// lui-meme), via une table de noms deja construite ($names : id => name)
+function syncfast_breadcrumb_from_uppercats($uppercats, $names)
+{
+  $labels = array();
+  foreach (explode(',', (string) $uppercats) as $id)
+  {
+    $id = (int) $id;
+    if ($id > 0 && isset($names[$id]))
+    {
+      $labels[] = $names[$id];
+    }
+  }
+
+  return implode(' / ', $labels);
+}
+
+// Enregistre le chemin absolu actuel de chaque token de filtre 'album' qui
+// resout encore a un repertoire. Appele au DEMARRAGE d'une synchro dirs/files
+// (avant toute suppression) et re-appele en fin de synchro. Fusionne avec la
+// memoire existante ; purge les filtres qui n'existent plus.
+function syncfast_record_album_filter_paths($site_id)
+{
+  $table = syncfast_category_filters_table();
+  if ($table === null)
+  {
+    return;
+  }
+
+  $filters = syncfast_album_filters_parsed($table);
+  if (empty($filters))
+  {
+    syncfast_album_filter_paths_save(array());
+    return;
+  }
+
+  $all_ids = syncfast_get_all_local_category_ids($site_id);
+  $id_to_path = empty($all_ids) ? array() : get_fulldirs($all_ids);
+
+  $memory = syncfast_album_filter_paths_load();
+  $new_memory = array();
+
+  foreach ($filters as $fid => $f)
+  {
+    $remembered = isset($memory[$fid]) && is_array($memory[$fid]) ? $memory[$fid] : array();
+    $entry = array();
+    // uniquement les tokens presents dans la valeur ACTUELLE du filtre : chemin
+    // frais si le token resout, sinon on garde la trace deja memorisee (pour
+    // qu'une synchro ulterieure puisse encore recaler un repertoire de retour)
+    foreach ($f['tokens'] as $tok)
+    {
+      if (isset($id_to_path[$tok]))
+      {
+        $entry[(string) $tok] = $id_to_path[$tok];
+      }
+      elseif (isset($remembered[(string) $tok]))
+      {
+        $entry[(string) $tok] = $remembered[(string) $tok];
+      }
+    }
+    if (!empty($entry))
+    {
+      $new_memory[(string) $fid] = $entry;
+    }
+  }
+
+  syncfast_album_filter_paths_save($new_memory);
+}
+
+// En fin de synchro : pour tout token de filtre 'album' dont l'id ne resout
+// plus a un repertoire, si la memoire persistante connait son ancien chemin ET
+// qu'un album existe DESORMAIS exactement a ce chemin (repertoire revenu au meme
+// endroit avec un nouvel id — cas hors-ligne puis re-en-ligne), on reecrit le
+// token. Si le chemin memorise a vraiment disparu (renommage / suppression), on
+// ne devine rien : on le signale. Jamais de DELETE de filtre, jamais de
+// reecriture d'un token encore valide. Re-enregistre la memoire a la fin.
+function syncfast_repair_album_filters($site_id)
+{
+  $result = array('fixed' => 0, 'review' => array());
+
+  $table = syncfast_category_filters_table();
+  if ($table === null)
+  {
+    return $result;
+  }
+
+  $filters = syncfast_album_filters_parsed($table);
+  if (empty($filters))
+  {
+    syncfast_album_filter_paths_save(array());
+    return $result;
+  }
+
+  $all_ids = syncfast_get_all_local_category_ids($site_id);
+  $id_to_path = empty($all_ids) ? array() : get_fulldirs($all_ids);
+  $path_to_id = array_flip($id_to_path);
+
+  // toutes les categories existantes (physiques ET virtuelles) : un filtre
+  // 'album' peut viser un album virtuel (dir NULL, donc absent de get_fulldirs) ;
+  // ce n'est pas un token orphelin, il ne faut ni le signaler ni y toucher.
+  $existing_ids = array();
+  $res = pwg_query('SELECT id FROM ' . CATEGORIES_TABLE . ';');
+  while ($row = pwg_db_fetch_row($res))
+  {
+    $existing_ids[(int) $row[0]] = true;
+  }
+
+  // noms des ancetres des smart albums, pour composer leur fil d'Ariane dans le
+  // rapport « filtres a revoir »
+  $anc_ids = array();
+  foreach ($filters as $f)
+  {
+    foreach (explode(',', $f['smart_uppercats']) as $id)
+    {
+      $id = (int) $id;
+      if ($id > 0)
+      {
+        $anc_ids[$id] = true;
+      }
+    }
+  }
+  $anc_names = array();
+  if (!empty($anc_ids))
+  {
+    $res = pwg_query('SELECT id, name FROM ' . CATEGORIES_TABLE . ' WHERE id IN (' . implode(',', array_keys($anc_ids)) . ');');
+    while ($row = pwg_db_fetch_assoc($res))
+    {
+      $anc_names[(int) $row['id']] = $row['name'];
+    }
+  }
+
+  $memory = syncfast_album_filter_paths_load();
+  $new_memory = array();
+
+  foreach ($filters as $fid => $f)
+  {
+    $remembered = isset($memory[$fid]) && is_array($memory[$fid]) ? $memory[$fid] : array();
+    $entry = array();
+    $new_tokens = array();
+    $changed = false;
+
+    // un token mort ne casse le filtre que selon le cond :
+    //  - 'all' / 'only' : un seul suffit a vider le resultat -> gênant
+    //  - 'one' / 'none' : gênant seulement si TOUS les tokens sont morts
+    //    ('one' -> vide ; 'none' -> n'exclut plus rien = vecteur du flood)
+    $alive = 0;
+    foreach ($f['tokens'] as $tok)
+    {
+      if (isset($existing_ids[$tok]))
+      {
+        $alive++;
+      }
+    }
+    $row_breaks_on_any_dead = in_array($f['cond'], array('all', 'only'), true);
+    $row_broken = $row_breaks_on_any_dead
+      ? ($alive < count($f['tokens']))
+      : ($alive === 0 && !empty($f['tokens']));
+
+    foreach ($f['tokens'] as $tok)
+    {
+      if (isset($existing_ids[$tok]))
+      {
+        // la categorie existe (physique ou virtuelle) : token valide, on le
+        // garde ; si elle est physique on (re)memorise son chemin
+        $new_tokens[] = $tok;
+        if (isset($id_to_path[$tok]))
+        {
+          $entry[(string) $tok] = $id_to_path[$tok];
+        }
+        continue;
+      }
+
+      // id inexistant : token orphelin -> que sait-on de son ancien chemin ?
+      $old_path = isset($remembered[(string) $tok]) ? $remembered[(string) $tok] : null;
+
+      if ($old_path !== null && isset($path_to_id[$old_path]))
+      {
+        // le repertoire est (re)venu a ce chemin avec un autre id -> on recale
+        // (toujours, meme si le filtre n'est pas "casse" : on repare ce qu'on peut)
+        $rebind = (int) $path_to_id[$old_path];
+        $new_tokens[] = $rebind;
+        $entry[(string) $rebind] = $old_path;
+        $changed = true;
+      }
+      else
+      {
+        // pas recalable : on garde le token, on garde la trace du chemin connu
+        $new_tokens[] = $tok;
+        if ($old_path !== null)
+        {
+          $entry[(string) $tok] = $old_path;
+        }
+        // on ne signale que si ce token mort casse effectivement le filtre
+        if ($row_broken)
+        {
+          $result['review'][] = array(
+            'smart_album' => $f['smart_name'],
+            'breadcrumb' => syncfast_breadcrumb_from_uppercats($f['smart_uppercats'], $anc_names),
+            'cond' => $f['cond'],
+            'path' => ($old_path !== null) ? $old_path : '',
+          );
+        }
+      }
+    }
+
+    if ($changed)
+    {
+      $new_value = $f['recursive'] . ',' . implode(',', array_map('intval', $new_tokens));
+      pwg_query('UPDATE ' . $table . ' SET value = \'' . $new_value . '\' WHERE id = ' . (int) $fid . ';');
+      $result['fixed']++;
+    }
+
+    if (!empty($entry))
+    {
+      $new_memory[(string) $fid] = $entry;
+    }
+  }
+
+  syncfast_album_filter_paths_save($new_memory);
+
+  return $result;
+}
+
 // $conf['sync_chars_regex'] est personnalisable par site (voir
 // config_default.inc.php) : impossible de deviner a l'avance la liste des
 // caracteres autorises pour un message d'erreur generique. On identifie donc
@@ -331,7 +696,10 @@ SELECT id_uppercat, MAX(`rank`) + 1 AS next_rank
     $next_rank[$parent_key] = (int) $row['next_rank'];
   }
 
-  $next_id = pwg_db_nextval('id', CATEGORIES_TABLE);
+  // syncfast_hwm_nextval (et non pwg_db_nextval = MAX(id)+1) : alloue au-dessus
+  // du plus-haut-id-historique pour ne jamais reattribuer l'id d'une categorie
+  // supprimee a un autre repertoire — cf. l'en-tete de syncfast_hwm_nextval()
+  $next_id = syncfast_hwm_nextval(CATEGORIES_TABLE);
   $inserts = array();
 
   foreach (array_diff($fs_fulldirs, array_keys($db_fulldirs)) as $fulldir)

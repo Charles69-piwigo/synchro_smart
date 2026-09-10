@@ -48,9 +48,9 @@ check_status(ACCESS_ADMINISTRATOR);
 check_pwg_token();
 
 include_once(PHPWG_ROOT_PATH . 'admin/include/functions.php');
-include_once(SYNCFAST_PATH . 'admin/functions.inc.php');
+include_once(SYNCSMART_PATH . 'admin/functions.inc.php');
 
-function syncfast_progress_payload($state, $extra = array())
+function syncsmart_progress_payload($state, $extra = array())
 {
   $payload = array(
     'phase' => $state['phase'],
@@ -86,11 +86,11 @@ function syncfast_progress_payload($state, $extra = array())
 
 // conserve un nombre plafonne d'erreurs detaillees (chemin + type) pour
 // affichage dans le rapport ; au-dela, seul le compteur global continue
-function syncfast_append_error_details(&$state, $details)
+function syncsmart_append_error_details(&$state, $details)
 {
   foreach ($details as $detail)
   {
-    if (count($state['error_details']) >= SYNCFAST_MAX_ERROR_DETAILS)
+    if (count($state['error_details']) >= SYNCSMART_MAX_ERROR_DETAILS)
     {
       break;
     }
@@ -99,7 +99,7 @@ function syncfast_append_error_details(&$state, $details)
 }
 
 // determine la prochaine phase a partir de l'etat courant et avance dedans si besoin
-function syncfast_advance_phase(&$state, $site_id)
+function syncsmart_advance_phase(&$state, $site_id)
 {
   if ($state['phase'] === 'dirs' && empty($state['dirs_queue']))
   {
@@ -107,8 +107,8 @@ function syncfast_advance_phase(&$state, $site_id)
     // un sous-arbre d'ids coches mais tout ce qui existe desormais en base
     // pour ce site (y compris ce que la phase repertoires vient de creer)
     $state['cat_ids'] = $state['root_sync']
-      ? syncfast_get_all_local_category_ids($site_id)
-      : syncfast_resolve_scope($state['checked_ids'], $site_id, $state['recursive']);
+      ? syncsmart_get_all_local_category_ids($site_id)
+      : syncsmart_resolve_scope($state['checked_ids'], $site_id, $state['recursive']);
 
     if ($state['operation'] === 'files')
     {
@@ -119,18 +119,18 @@ function syncfast_advance_phase(&$state, $site_id)
     }
     else
     {
-      syncfast_enter_meta_or_done($state);
+      syncsmart_enter_meta_or_done($state);
     }
   }
   elseif ($state['phase'] === 'files' && empty($state['files_queue']))
   {
-    syncfast_enter_meta_or_done($state);
+    syncsmart_enter_meta_or_done($state);
   }
 }
 
 // 'files' enchaine une passe meta des NOUVELLES photos (date_metadata_update
 // IS NULL) ; 'meta' traite TOUTES les photos du perimetre ; 'dirs' s'arrete la
-function syncfast_enter_meta_or_done(&$state)
+function syncsmart_enter_meta_or_done(&$state)
 {
   if ($state['operation'] === 'files' || $state['operation'] === 'meta')
   {
@@ -142,7 +142,7 @@ function syncfast_enter_meta_or_done(&$state)
       $state['counters']['albums_analyzed'] = count($state['cat_ids']);
     }
     $only_new = ($state['operation'] === 'files');
-    $state['meta_total'] = syncfast_count_meta_targets($state['cat_ids'], $only_new);
+    $state['meta_total'] = syncsmart_count_meta_targets($state['cat_ids'], $only_new);
     $state['meta_index'] = 0;
     $state['phase'] = 'meta';
   }
@@ -153,11 +153,11 @@ function syncfast_enter_meta_or_done(&$state)
 }
 
 $action = '';
-if (isset($_POST['syncfast_start']))
+if (isset($_POST['syncsmart_start']))
 {
   $action = 'start';
 }
-elseif (isset($_POST['syncfast_chunk']))
+elseif (isset($_POST['syncsmart_chunk']))
 {
   $action = 'chunk';
 }
@@ -166,7 +166,7 @@ $response = array('success' => false);
 
 if ($action === 'start')
 {
-  $site_id = syncfast_get_local_site_id();
+  $site_id = syncsmart_get_local_site_id();
   $checked_ids = isset($_POST['cat_ids']) && is_array($_POST['cat_ids']) ? $_POST['cat_ids'] : array();
   $checked_ids = array_values(array_unique(array_filter(array_map('intval', $checked_ids))));
 
@@ -210,8 +210,8 @@ if ($action === 'start')
       'root_sync' => $root_sync,
       'checked_ids' => $checked_ids,
       'cat_ids' => $root_sync
-        ? syncfast_get_all_local_category_ids($site_id)
-        : syncfast_resolve_scope($checked_ids, $site_id, $recursive),
+        ? syncsmart_get_all_local_category_ids($site_id)
+        : syncsmart_resolve_scope($checked_ids, $site_id, $recursive),
       'phase' => '',
       'dirs_queue' => array(),
       'dirs_total' => 0,
@@ -241,37 +241,37 @@ if ($action === 'start')
       // mémorise le chemin absolu de chaque cible de filtre SmartAlbums 'album'
       // AVANT toute création/suppression de catégorie ; la réparation en fin de
       // synchro s'en sert pour recaler un filtre dont l'album cible réapparaît
-      // au même chemin avec un nouvel id — cf. syncfast_repair_album_filters()
-      syncfast_record_album_filter_paths($site_id);
+      // au même chemin avec un nouvel id — cf. syncsmart_repair_album_filters()
+      syncsmart_record_album_filter_paths($site_id);
 
       // cat_id 0 = racine du site (aucune categorie precise), voir
-      // syncfast_scan_directories_for_album() / syncfast_get_site_root_dir()
+      // syncsmart_scan_directories_for_album() / syncsmart_get_site_root_dir()
       $state['dirs_queue'] = $root_sync ? array(0) : $checked_ids;
       $state['dirs_total'] = $root_sync ? 1 : count($checked_ids);
       $state['phase'] = 'dirs';
     }
     else
     {
-      syncfast_enter_meta_or_done($state);
+      syncsmart_enter_meta_or_done($state);
     }
 
-    $_SESSION[SYNCFAST_SESSION_KEY] = $state;
+    $_SESSION[SYNCSMART_SESSION_KEY] = $state;
 
     $response = array_merge(
       array('success' => true, 'message' => ''),
-      syncfast_progress_payload($state)
+      syncsmart_progress_payload($state)
     );
   }
 }
 elseif ($action === 'chunk')
 {
-  if (empty($_SESSION[SYNCFAST_SESSION_KEY]))
+  if (empty($_SESSION[SYNCSMART_SESSION_KEY]))
   {
     $response['message'] = l10n('No active synchronization was found.');
   }
   else
   {
-    $state = $_SESSION[SYNCFAST_SESSION_KEY];
+    $state = $_SESSION[SYNCSMART_SESSION_KEY];
     $site_id = $state['site_id'];
 
     if (!defined('CURRENT_DATE'))
@@ -285,15 +285,15 @@ elseif ($action === 'chunk')
     if ($state['phase'] === 'dirs' && !empty($state['dirs_queue']))
     {
       $cat_id = array_shift($state['dirs_queue']);
-      $current_label = ($cat_id === 0) ? './galleries' : syncfast_get_category_label($cat_id);
+      $current_label = ($cat_id === 0) ? './galleries' : syncsmart_get_category_label($cat_id);
 
-      $r = syncfast_scan_directories_for_album($cat_id, $site_id, $state['recursive']);
+      $r = syncsmart_scan_directories_for_album($cat_id, $site_id, $state['recursive']);
       $state['counters']['albums_analyzed'] += $r['analyzed'];
       $state['counters']['created_categories'] += $r['created'];
       $state['counters']['deleted_categories'] += $r['deleted'];
       $state['counters']['deleted_images'] += $r['deleted_images'];
       $state['counters']['errors'] += $r['errors'];
-      syncfast_append_error_details($state, $r['error_details']);
+      syncsmart_append_error_details($state, $r['error_details']);
       $state['dirs_done']++;
 
       if (empty($state['dirs_queue']))
@@ -302,20 +302,20 @@ elseif ($action === 'chunk')
         update_global_rank();
       }
 
-      syncfast_advance_phase($state, $site_id);
+      syncsmart_advance_phase($state, $site_id);
     }
     elseif ($state['phase'] === 'files' && !empty($state['files_queue']))
     {
       $cat_id = array_shift($state['files_queue']);
-      $current_label = syncfast_get_category_label($cat_id);
+      $current_label = syncsmart_get_category_label($cat_id);
 
-      $site_reader = syncfast_get_site_reader($site_id);
-      $r = syncfast_sync_files_for_album($cat_id, $site_id, $site_reader);
+      $site_reader = syncsmart_get_site_reader($site_id);
+      $r = syncsmart_sync_files_for_album($cat_id, $site_id, $site_reader);
       $state['counters']['files_analyzed'] += $r['analyzed'];
       $state['counters']['new_images'] += $r['new'];
       $state['counters']['deleted_images'] += $r['deleted'];
       $state['counters']['errors'] += $r['errors'];
-      syncfast_append_error_details($state, $r['error_details']);
+      syncsmart_append_error_details($state, $r['error_details']);
       $state['files_done']++;
 
       if (empty($state['files_queue']))
@@ -323,11 +323,11 @@ elseif ($action === 'chunk')
         update_category('all');
       }
 
-      syncfast_advance_phase($state, $site_id);
+      syncsmart_advance_phase($state, $site_id);
     }
     elseif ($state['phase'] === 'meta' && $state['meta_index'] < $state['meta_total'])
     {
-      $site_reader = syncfast_get_site_reader($site_id);
+      $site_reader = syncsmart_get_site_reader($site_id);
 
       // operation 'files' : passe meta des NOUVELLES photos uniquement
       // (date_metadata_update IS NULL). Le filtre retrecit a chaque lot traite,
@@ -363,10 +363,10 @@ elseif ($action === 'chunk')
         );
       }
 
-      $r = syncfast_sync_metadata_batch(
+      $r = syncsmart_sync_metadata_batch(
         $state['cat_ids'],
         $query_offset,
-        SYNCFAST_META_CHUNK_SIZE,
+        SYNCSMART_META_CHUNK_SIZE,
         $only_new,
         $meta_opts,
         $site_reader
@@ -374,13 +374,13 @@ elseif ($action === 'chunk')
 
       $state['counters']['meta_updated'] += $r['updated'];
       $state['counters']['errors'] += $r['errors'];
-      syncfast_append_error_details($state, $r['error_details']);
+      syncsmart_append_error_details($state, $r['error_details']);
       $current_label = $r['last_file'];
 
       $batch_count = isset($r['batch_count']) ? $r['batch_count'] : 0;
       $state['meta_index'] += max($batch_count, 1);
 
-      if ($batch_count < SYNCFAST_META_CHUNK_SIZE || $state['meta_index'] >= $state['meta_total'])
+      if ($batch_count < SYNCSMART_META_CHUNK_SIZE || $state['meta_index'] >= $state['meta_total'])
       {
         $state['meta_index'] = $state['meta_total'];
         $state['phase'] = 'done';
@@ -398,28 +398,28 @@ elseif ($action === 'chunk')
       // (dirs/files seulement : une synchro meta ne touche pas les catégories)
       if ($state['operation'] === 'dirs' || $state['operation'] === 'files')
       {
-        $repair = syncfast_repair_album_filters($site_id);
+        $repair = syncsmart_repair_album_filters($site_id);
         $state['counters']['album_filters_fixed'] = $repair['fixed'];
         $state['counters']['album_filters_review'] = count($repair['review']);
-        $state['filter_review'] = array_slice($repair['review'], 0, SYNCFAST_MAX_ERROR_DETAILS);
+        $state['filter_review'] = array_slice($repair['review'], 0, SYNCSMART_MAX_ERROR_DETAILS);
 
-        $tag_window = syncfast_tag_recycle_window();
+        $tag_window = syncsmart_tag_recycle_window();
         if ($tag_window > 0)
         {
           $state['tag_recycle_window'] = $tag_window;
         }
       }
 
-      unset($_SESSION[SYNCFAST_SESSION_KEY]);
+      unset($_SESSION[SYNCSMART_SESSION_KEY]);
     }
     else
     {
-      $_SESSION[SYNCFAST_SESSION_KEY] = $state;
+      $_SESSION[SYNCSMART_SESSION_KEY] = $state;
     }
 
     $response = array_merge(
       array('success' => true, 'message' => ''),
-      syncfast_progress_payload($state, array('current_label' => $current_label))
+      syncsmart_progress_payload($state, array('current_label' => $current_label))
     );
   }
 }

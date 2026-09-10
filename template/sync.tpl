@@ -4,7 +4,7 @@
 </div>
 
 <div class="titlePage" id="sf-title">
-  <h2>{'Synchro Rapide'|@translate}</h2>
+  <h2>{'Synchro Smart'|@translate}</h2>
 </div>
 
 <style>
@@ -111,11 +111,11 @@
   <fieldset>
     <legend>{'Albums'|@translate}</legend>
 
-    {if empty($syncfast_albums)}
+    {if empty($syncsmart_albums)}
       <p>{'No album with a physical directory was found.'|@translate}</p>
     {else}
     <div class="sf-albums-scroll">
-      {foreach from=$syncfast_albums item=album}
+      {foreach from=$syncsmart_albums item=album}
       <div class="sf-album-row" data-id="{$album.id}" data-depth="{$album.depth}"{if $album.depth > 0} style="display:none;"{/if}>
         <span style="padding-left:{$album.depth*20}px;">
           {if $album.has_children}
@@ -168,8 +168,8 @@
 
 {footer_script}
 (function() {
-  var adminUrl = '{$SYNCFAST_ADMIN|escape:'javascript'}';
-  var token = '{$SYNCFAST_TOKEN|escape:'javascript'}';
+  var adminUrl = '{$SYNCSMART_ADMIN|escape:'javascript'}';
+  var token = '{$SYNCSMART_TOKEN|escape:'javascript'}';
 
   var L = {
     confirmRootSync: '{'Aucun album sélectionné, voulez-vous synchroniser ./galleries en totalité ?'|@translate|escape:'javascript'}',
@@ -279,7 +279,7 @@
 
   // 'sf-explicit' = la ligne a ete cliquee directement par l'utilisateur.
   // 'sf-implied' = un ancetre est selectionne (explicite ou implicite) et,
-  // en mode recursif, l'inclut deja cote serveur (syncfast_resolve_scope).
+  // en mode recursif, l'inclut deja cote serveur (syncsmart_resolve_scope).
   // 'sf-selected' (affichage) = explicit OU implied. On garde les deux
   // premiers etats separes pour qu'un depli/repli de l'ancetre ne "colle"
   // pas une selection implicite sur ses descendants.
@@ -523,7 +523,7 @@
       return;
     }
 
-    postApi('syncfast_chunk').then(function(data) {
+    postApi('syncsmart_chunk').then(function(data) {
       if (!data.success) {
         showAlert(data.message || L.chunkFailed);
         finish();
@@ -595,7 +595,7 @@
     updateErrorDetails(null);
     updateFilterReview(null);
 
-    postApi('syncfast_start', {
+    postApi('syncsmart_start', {
       cat_ids: albumIds,
       operation: operation,
       meta_desc: $metaDesc.checked ? '1' : '',

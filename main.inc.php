@@ -1,14 +1,21 @@
 <?php
 /*
-Plugin Name: synchro_fast
-Version: 1.2
-Description: Synchronisation par lots (anti-timeout 504) avec selection d'albums. Ajoute un onglet "Synchro Rapide" dans Outils > Synchroniser.
+Plugin Name: synchro_smart
+Version: 1.3
+Description: Synchronisation par lots (anti-timeout 504) avec selection d'albums, et prise en charge des SmartAlbums (id de categories non recycles, filtres "album" recales ou signales lors des renommages). Ajoute un onglet "Synchro Smart" dans Outils > Synchroniser.
 Plugin URI:
 Author: Charles69
 */
 
 //============= VERSIONS ============================================
 /*
+
+version 1.3 - 10/09/2026
+  Renommage synchro_fast -> synchro_smart (id du plugin) pour signaler la
+  prise en charge des SmartAlbums introduite en 1.2. Aucune evolution
+  fonctionnelle : uniquement les prefixes syncfast_/SYNCFAST_ -> syncsmart_/
+  SYNCSMART_, le nom affiche "Synchro Rapide" -> "Synchro Smart", et le
+  parametre de config syncfast_album_filter_paths -> syncsmart_album_filter_paths.
 
 version 1.2 - 10/09/2026
   Ne recycle plus les id de catégories : allocation au-dessus du
@@ -40,7 +47,7 @@ version 1.1 - 01/09/2026
   + sous-option "Fusionner" (ajout sans suppression via add_tags)
   Suppression des cases "Initialiser les données existantes" et
   "Même les photos déjà synchronisées" (implicites selon le choix)
-  Onglet "Synchro Rapide" : affiche la barre d'onglets native (retour possible
+  Onglet "Synchro Smart" : affiche la barre d'onglets native (retour possible
   vers Synchronisation / Gestionnaire de sites)
 
 version 1.0 - 22/08/2026
@@ -59,37 +66,37 @@ if (!defined('PHPWG_ROOT_PATH'))
   die('Hacking attempt!');
 }
 
-defined('SYNCFAST_ID') or define('SYNCFAST_ID', basename(dirname(__FILE__)));
-define('SYNCFAST_PATH', PHPWG_PLUGINS_PATH . SYNCFAST_ID . '/');
-define('SYNCFAST_ADMIN', get_root_url() . 'admin.php?page=plugin-' . SYNCFAST_ID);
+defined('SYNCSMART_ID') or define('SYNCSMART_ID', basename(dirname(__FILE__)));
+define('SYNCSMART_PATH', PHPWG_PLUGINS_PATH . SYNCSMART_ID . '/');
+define('SYNCSMART_ADMIN', get_root_url() . 'admin.php?page=plugin-' . SYNCSMART_ID);
 
 // taille de lot pour la phase de lecture des meta-donnees (la plus couteuse en I/O)
-define('SYNCFAST_META_CHUNK_SIZE', 20);
+define('SYNCSMART_META_CHUNK_SIZE', 20);
 
 // cle de session utilisee pour stocker l'etat d'avancement (pas de table SQL)
-define('SYNCFAST_SESSION_KEY', 'sync_fast_progress');
+define('SYNCSMART_SESSION_KEY', 'sync_smart_progress');
 
 // nombre maximum d'erreurs detaillees conservees et affichees dans le rapport
 // (au-dela, seul le compteur global continue d'augmenter)
-define('SYNCFAST_MAX_ERROR_DETAILS', 30);
+define('SYNCSMART_MAX_ERROR_DETAILS', 30);
 
-load_language('plugin.lang', SYNCFAST_PATH);
+load_language('plugin.lang', SYNCSMART_PATH);
 
 if (defined('IN_ADMIN'))
 {
-  add_event_handler('tabsheet_before_select', 'syncfast_add_sync_tab', EVENT_HANDLER_PRIORITY_NEUTRAL, 2);
+  add_event_handler('tabsheet_before_select', 'syncsmart_add_sync_tab', EVENT_HANDLER_PRIORITY_NEUTRAL, 2);
 }
 
 // ajoute un onglet dans la tabsheet native de la page Outils > Synchroniser
 // (le clic navigue vers notre propre page plugin, site_update.php ne sait pas
 // afficher un onglet supplementaire dans son propre contenu)
-function syncfast_add_sync_tab($sheets, $tab_id)
+function syncsmart_add_sync_tab($sheets, $tab_id)
 {
   if ($tab_id === 'site_update')
   {
-    $sheets['sync_fast'] = array(
-      'caption' => '<span class="icon-flash"></span>' . l10n('Synchro Rapide'),
-      'url' => SYNCFAST_ADMIN,
+    $sheets['sync_smart'] = array(
+      'caption' => '<span class="icon-flash"></span>' . l10n('Synchro Smart'),
+      'url' => SYNCSMART_ADMIN,
     );
   }
 

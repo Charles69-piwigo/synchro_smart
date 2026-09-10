@@ -9,7 +9,7 @@ if (!defined('PHPWG_ROOT_PATH'))
 // -----------------------------------------------------------------------
 
 // retourne l'id du premier site local (non distant) de l'installation
-function syncfast_get_local_site_id()
+function syncsmart_get_local_site_id()
 {
   $query = '
 SELECT id, galleries_url
@@ -29,14 +29,14 @@ SELECT id, galleries_url
   return 0;
 }
 
-function syncfast_get_site_reader($site_id)
+function syncsmart_get_site_reader($site_id)
 {
   include_once(PHPWG_ROOT_PATH . 'admin/site_reader_local.php');
 
-  return new LocalSiteReader(syncfast_get_site_gallery_url($site_id));
+  return new LocalSiteReader(syncsmart_get_site_gallery_url($site_id));
 }
 
-function syncfast_get_site_gallery_url($site_id)
+function syncsmart_get_site_gallery_url($site_id)
 {
   $query = '
 SELECT galleries_url
@@ -52,9 +52,9 @@ SELECT galleries_url
 // racine physique du site (meme resolution que admin/site_update.php quand
 // aucun cat_id n'est fourni) : utilisee pour amorcer la toute premiere
 // synchronisation, avant qu'aucune categorie n'existe encore en base
-function syncfast_get_site_root_dir($site_id)
+function syncsmart_get_site_root_dir($site_id)
 {
-  return preg_replace('#/*$#', '', syncfast_get_site_gallery_url($site_id));
+  return preg_replace('#/*$#', '', syncsmart_get_site_gallery_url($site_id));
 }
 
 // -----------------------------------------------------------------------
@@ -63,7 +63,7 @@ function syncfast_get_site_root_dir($site_id)
 
 // liste des albums physiques (dir IS NOT NULL) avec profondeur et fil d'ariane,
 // meme technique que galleries_link_manager (depth = substr_count(global_rank, '.'))
-function syncfast_get_albums_tree($site_id)
+function syncsmart_get_albums_tree($site_id)
 {
   $query = '
 SELECT id, name, uppercats, global_rank
@@ -134,7 +134,7 @@ SELECT category_id, COUNT(*) AS nb_images
   return $albums;
 }
 
-function syncfast_get_category_label($cat_id)
+function syncsmart_get_category_label($cat_id)
 {
   $query = '
 SELECT name
@@ -152,7 +152,7 @@ SELECT name
 // Resolution du perimetre (albums coches + descendants si recursif)
 // -----------------------------------------------------------------------
 
-function syncfast_resolve_scope($checked_ids, $site_id, $recursive)
+function syncsmart_resolve_scope($checked_ids, $site_id, $recursive)
 {
   $checked_ids = array_values(array_unique(array_filter(array_map('intval', $checked_ids))));
 
@@ -194,7 +194,7 @@ SELECT id
 // sous-arbre : utilise quand une synchro "racine" (./galleries en totalite)
 // doit couvrir tout ce qui existe deja en base, en plus de ce qui vient
 // d'etre cree pendant la phase repertoires
-function syncfast_get_all_local_category_ids($site_id)
+function syncsmart_get_all_local_category_ids($site_id)
 {
   $query = '
 SELECT id
@@ -227,9 +227,9 @@ SELECT id
 // plus-haut-id-jamais-attribue : la valeur AUTO_INCREMENT de la table, que
 // MyISAM ne redescend jamais sur DELETE. Un id supprime reste ainsi
 // definitivement mort (le filtre casse devient visiblement casse, jamais
-// subtilement faux) et syncfast_repair_album_filters() peut le recaler par
+// subtilement faux) et syncsmart_repair_album_filters() peut le recaler par
 // chemin le cas echeant.
-function syncfast_hwm_nextval($table, $id_col = 'id')
+function syncsmart_hwm_nextval($table, $id_col = 'id')
 {
   $next = (int) pwg_db_nextval($id_col, $table);
 
@@ -251,7 +251,7 @@ SELECT AUTO_INCREMENT
 // prochain nouveau mot-cle. Un filtre SmartAlbums type 'tags' pourrait alors
 // pointer un autre tag. On ne reecrit pas le coeur : on signale (compteur nul
 // aujourd'hui sur cette install).
-function syncfast_tag_recycle_window()
+function syncsmart_tag_recycle_window()
 {
   if (!defined('TAGS_TABLE'))
   {
@@ -275,7 +275,7 @@ SELECT AUTO_INCREMENT
 }
 
 // nom de la table des filtres SmartAlbums, ou null si le plugin n'est pas la
-function syncfast_category_filters_table()
+function syncsmart_category_filters_table()
 {
   if (defined('CATEGORY_FILTERS_TABLE'))
   {
@@ -296,12 +296,12 @@ function syncfast_category_filters_table()
 // sur DEUX synchros distinctes : la 1re supprime la categorie, la 2nde la
 // recree avec un nouvel id — il faut se souvenir du chemin d'origine entre les
 // deux pour recaler le filtre.
-define('SYNCFAST_FILTER_PATHS_PARAM', 'syncfast_album_filter_paths');
+define('SYNCSMART_FILTER_PATHS_PARAM', 'syncsmart_album_filter_paths');
 
-function syncfast_album_filter_paths_load()
+function syncsmart_album_filter_paths_load()
 {
   global $conf;
-  $raw = isset($conf[SYNCFAST_FILTER_PATHS_PARAM]) ? $conf[SYNCFAST_FILTER_PATHS_PARAM] : '';
+  $raw = isset($conf[SYNCSMART_FILTER_PATHS_PARAM]) ? $conf[SYNCSMART_FILTER_PATHS_PARAM] : '';
   if (!is_string($raw) || $raw === '')
   {
     return array();
@@ -311,14 +311,14 @@ function syncfast_album_filter_paths_load()
   return is_array($map) ? $map : array();
 }
 
-function syncfast_album_filter_paths_save($map)
+function syncsmart_album_filter_paths_save($map)
 {
-  conf_update_param(SYNCFAST_FILTER_PATHS_PARAM, $map, true);
+  conf_update_param(SYNCSMART_FILTER_PATHS_PARAM, $map, true);
 }
 
 // lit les filtres 'album' courants -> array( filter_id => array(
 //   'category_id','smart_name','smart_uppercats','cond','recursive','tokens'=>[int,...] ) )
-function syncfast_album_filters_parsed($table)
+function syncsmart_album_filters_parsed($table)
 {
   $query = '
 SELECT cf.id, cf.category_id, cf.cond, cf.value, c.name AS smart_name, c.uppercats AS smart_uppercats
@@ -357,7 +357,7 @@ SELECT cf.id, cf.category_id, cf.cond, cf.value, c.name AS smart_name, c.upperca
 
 // fil d'Ariane d'un smart album depuis son uppercats ("id,id,id" finissant par
 // lui-meme), via une table de noms deja construite ($names : id => name)
-function syncfast_breadcrumb_from_uppercats($uppercats, $names)
+function syncsmart_breadcrumb_from_uppercats($uppercats, $names)
 {
   $labels = array();
   foreach (explode(',', (string) $uppercats) as $id)
@@ -376,25 +376,25 @@ function syncfast_breadcrumb_from_uppercats($uppercats, $names)
 // resout encore a un repertoire. Appele au DEMARRAGE d'une synchro dirs/files
 // (avant toute suppression) et re-appele en fin de synchro. Fusionne avec la
 // memoire existante ; purge les filtres qui n'existent plus.
-function syncfast_record_album_filter_paths($site_id)
+function syncsmart_record_album_filter_paths($site_id)
 {
-  $table = syncfast_category_filters_table();
+  $table = syncsmart_category_filters_table();
   if ($table === null)
   {
     return;
   }
 
-  $filters = syncfast_album_filters_parsed($table);
+  $filters = syncsmart_album_filters_parsed($table);
   if (empty($filters))
   {
-    syncfast_album_filter_paths_save(array());
+    syncsmart_album_filter_paths_save(array());
     return;
   }
 
-  $all_ids = syncfast_get_all_local_category_ids($site_id);
+  $all_ids = syncsmart_get_all_local_category_ids($site_id);
   $id_to_path = empty($all_ids) ? array() : get_fulldirs($all_ids);
 
-  $memory = syncfast_album_filter_paths_load();
+  $memory = syncsmart_album_filter_paths_load();
   $new_memory = array();
 
   foreach ($filters as $fid => $f)
@@ -421,7 +421,7 @@ function syncfast_record_album_filter_paths($site_id)
     }
   }
 
-  syncfast_album_filter_paths_save($new_memory);
+  syncsmart_album_filter_paths_save($new_memory);
 }
 
 // En fin de synchro : pour tout token de filtre 'album' dont l'id ne resout
@@ -431,24 +431,24 @@ function syncfast_record_album_filter_paths($site_id)
 // token. Si le chemin memorise a vraiment disparu (renommage / suppression), on
 // ne devine rien : on le signale. Jamais de DELETE de filtre, jamais de
 // reecriture d'un token encore valide. Re-enregistre la memoire a la fin.
-function syncfast_repair_album_filters($site_id)
+function syncsmart_repair_album_filters($site_id)
 {
   $result = array('fixed' => 0, 'review' => array());
 
-  $table = syncfast_category_filters_table();
+  $table = syncsmart_category_filters_table();
   if ($table === null)
   {
     return $result;
   }
 
-  $filters = syncfast_album_filters_parsed($table);
+  $filters = syncsmart_album_filters_parsed($table);
   if (empty($filters))
   {
-    syncfast_album_filter_paths_save(array());
+    syncsmart_album_filter_paths_save(array());
     return $result;
   }
 
-  $all_ids = syncfast_get_all_local_category_ids($site_id);
+  $all_ids = syncsmart_get_all_local_category_ids($site_id);
   $id_to_path = empty($all_ids) ? array() : get_fulldirs($all_ids);
   $path_to_id = array_flip($id_to_path);
 
@@ -486,7 +486,7 @@ function syncfast_repair_album_filters($site_id)
     }
   }
 
-  $memory = syncfast_album_filter_paths_load();
+  $memory = syncsmart_album_filter_paths_load();
   $new_memory = array();
 
   foreach ($filters as $fid => $f)
@@ -552,7 +552,7 @@ function syncfast_repair_album_filters($site_id)
         {
           $result['review'][] = array(
             'smart_album' => $f['smart_name'],
-            'breadcrumb' => syncfast_breadcrumb_from_uppercats($f['smart_uppercats'], $anc_names),
+            'breadcrumb' => syncsmart_breadcrumb_from_uppercats($f['smart_uppercats'], $anc_names),
             'cond' => $f['cond'],
             'path' => ($old_path !== null) ? $old_path : '',
           );
@@ -573,7 +573,7 @@ function syncfast_repair_album_filters($site_id)
     }
   }
 
-  syncfast_album_filter_paths_save($new_memory);
+  syncsmart_album_filter_paths_save($new_memory);
 
   return $result;
 }
@@ -584,7 +584,7 @@ function syncfast_repair_album_filters($site_id)
 // precisement le(s) caractere(s) fautif(s) en testant chacun individuellement
 // contre la regex reellement configuree (chaque caractere seul doit encore
 // satisfaire ^[...]+$ s'il fait partie de l'ensemble autorise).
-function syncfast_find_invalid_chars($name)
+function syncsmart_find_invalid_chars($name)
 {
   global $conf;
 
@@ -609,11 +609,11 @@ function syncfast_find_invalid_chars($name)
 
 // -----------------------------------------------------------------------
 // Phase 1 : creation des albums manquants, un album source a la fois
-// (cat_id === 0 = racine du site ./galleries, cf. syncfast_get_site_root_dir :
+// (cat_id === 0 = racine du site ./galleries, cf. syncsmart_get_site_root_dir :
 // amorce de la toute premiere synchronisation, avant qu'aucun album existe)
 // -----------------------------------------------------------------------
 
-function syncfast_scan_directories_for_album($cat_id, $site_id, $recursive)
+function syncsmart_scan_directories_for_album($cat_id, $site_id, $recursive)
 {
   global $conf;
 
@@ -624,7 +624,7 @@ function syncfast_scan_directories_for_album($cat_id, $site_id, $recursive)
     // cat_id 0 = amorce de la toute premiere synchronisation (aucune
     // categorie n'existe encore en base) : on scanne directement la racine
     // physique du site plutot que le repertoire d'une categorie existante
-    $basedir = syncfast_get_site_root_dir($site_id);
+    $basedir = syncsmart_get_site_root_dir($site_id);
   }
   else
   {
@@ -696,10 +696,10 @@ SELECT id_uppercat, MAX(`rank`) + 1 AS next_rank
     $next_rank[$parent_key] = (int) $row['next_rank'];
   }
 
-  // syncfast_hwm_nextval (et non pwg_db_nextval = MAX(id)+1) : alloue au-dessus
+  // syncsmart_hwm_nextval (et non pwg_db_nextval = MAX(id)+1) : alloue au-dessus
   // du plus-haut-id-historique pour ne jamais reattribuer l'id d'une categorie
-  // supprimee a un autre repertoire — cf. l'en-tete de syncfast_hwm_nextval()
-  $next_id = syncfast_hwm_nextval(CATEGORIES_TABLE);
+  // supprimee a un autre repertoire — cf. l'en-tete de syncsmart_hwm_nextval()
+  $next_id = syncsmart_hwm_nextval(CATEGORIES_TABLE);
   $inserts = array();
 
   foreach (array_diff($fs_fulldirs, array_keys($db_fulldirs)) as $fulldir)
@@ -708,7 +708,7 @@ SELECT id_uppercat, MAX(`rank`) + 1 AS next_rank
     if (!preg_match($conf['sync_chars_regex'], $dir))
     {
       $result['errors']++;
-      $result['error_details'][] = array('path' => $fulldir, 'type' => 'invalid_chars', 'chars' => implode(' ', syncfast_find_invalid_chars($dir)));
+      $result['error_details'][] = array('path' => $fulldir, 'type' => 'invalid_chars', 'chars' => implode(' ', syncsmart_find_invalid_chars($dir)));
       continue;
     }
 
@@ -823,7 +823,7 @@ SELECT COUNT(*)
 // sous-repertoires ici evite a la fois de contaminer l'album en cours avec
 // des fichiers d'un repertoire exclu et de perdre du temps a les lire pour
 // rien (repertoires "raw", "video", etc. potentiellement volumineux)
-function syncfast_list_files_in_dir($site_reader, $path)
+function syncsmart_list_files_in_dir($site_reader, $path)
 {
   global $conf;
 
@@ -867,7 +867,7 @@ function syncfast_list_files_in_dir($site_reader, $path)
   return $fs;
 }
 
-function syncfast_sync_files_for_album($cat_id, $site_id, $site_reader)
+function syncsmart_sync_files_for_album($cat_id, $site_id, $site_reader)
 {
   global $conf, $user;
 
@@ -882,7 +882,7 @@ function syncfast_sync_files_for_album($cat_id, $site_id, $site_reader)
   }
   $basedir = $fulldirs[$cat_id];
 
-  $fs = syncfast_list_files_in_dir($site_reader, $basedir);
+  $fs = syncsmart_list_files_in_dir($site_reader, $basedir);
   $result['analyzed'] = count($fs);
 
   $query = '
@@ -903,7 +903,7 @@ SELECT id, path
     if (!preg_match($conf['sync_chars_regex'], $filename))
     {
       $result['errors']++;
-      $result['error_details'][] = array('path' => $path, 'type' => 'invalid_chars', 'chars' => implode(' ', syncfast_find_invalid_chars($filename)));
+      $result['error_details'][] = array('path' => $path, 'type' => 'invalid_chars', 'chars' => implode(' ', syncsmart_find_invalid_chars($filename)));
       continue;
     }
 
@@ -996,7 +996,7 @@ SELECT id, path
 // recalcule a chaque appel, rien de precalcule en session)
 // -----------------------------------------------------------------------
 
-function syncfast_count_meta_targets($cat_ids, $only_new)
+function syncsmart_count_meta_targets($cat_ids, $only_new)
 {
   if (empty($cat_ids))
   {
@@ -1030,7 +1030,7 @@ SELECT COUNT(*)
 // du fichier sans rien retirer (add_tags) ; sinon la liste du fichier remplace
 // tout (set_tags_of), en preservant les tags visages face_tag (fichier sans
 // mot-cle => tous les tags hors visages retires).
-function syncfast_sync_metadata_batch($cat_ids, $offset, $limit, $only_new, $opts, $site_reader)
+function syncsmart_sync_metadata_batch($cat_ids, $offset, $limit, $only_new, $opts, $site_reader)
 {
   $result = array('updated' => 0, 'errors' => 0, 'last_file' => '', 'error_details' => array());
 

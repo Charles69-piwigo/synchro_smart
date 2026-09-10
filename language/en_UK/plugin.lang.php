@@ -1,6 +1,6 @@
 <?php
 
-$lang['Synchro Rapide'] = 'Fast Sync';
+$lang['Synchro Smart'] = 'Synchro Smart';
 $lang['Synchronization scope'] = 'Synchronization scope';
 $lang['Répertoires uniquement'] = 'Directories only';
 $lang['Répertoires + fichiers'] = 'Directories + files';

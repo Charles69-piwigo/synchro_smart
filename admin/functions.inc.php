@@ -274,12 +274,21 @@ SELECT AUTO_INCREMENT
   return $window > 0 ? $window : 0;
 }
 
-// nom de la table des filtres SmartAlbums, ou null si le plugin n'est pas la
+// nom de la table des filtres SmartAlbums, ou null si le plugin n'est pas
+// actif. Desactiver SmartAlbums ne supprime ni sa table ni ses filtres ; sans
+// ce controle, une simple presence de table (SHOW TABLES) faisait analyser et
+// signaler comme "a revoir" des filtres orphelins d'un SmartAlbums desactive
+// depuis longtemps, alors qu'ils sont totalement inertes.
 function syncsmart_category_filters_table()
 {
   if (defined('CATEGORY_FILTERS_TABLE'))
   {
     return CATEGORY_FILTERS_TABLE;
+  }
+
+  if (!count(get_db_plugins('active', 'SmartAlbums')))
+  {
+    return null;
   }
 
   global $prefixeTable;
@@ -399,6 +408,17 @@ function syncsmart_record_album_filter_paths($site_id)
 
   foreach ($filters as $fid => $f)
   {
+    // le SmartAlbum proprietaire du filtre a lui-meme disparu (categorie
+    // supprimee, LEFT JOIN de syncsmart_album_filters_parsed() sans resultat) :
+    // le filtre est mort et n'est plus jamais evalue (aucune page ne peut plus
+    // le declencher), rien a reparer ni a signaler — l'indication "re-selectionnez
+    // l'album cible dans la configuration du SmartAlbum concerne" n'a aucun sens
+    // si ce SmartAlbum n'existe plus.
+    if (!isset($existing_ids[$f['category_id']]))
+    {
+      continue;
+    }
+
     $remembered = isset($memory[$fid]) && is_array($memory[$fid]) ? $memory[$fid] : array();
     $entry = array();
     // uniquement les tokens presents dans la valeur ACTUELLE du filtre : chemin

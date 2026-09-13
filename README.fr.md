@@ -52,4 +52,4 @@ Un zip de release peut aussi être généré avec `generate-release-zip.ps1` (Po
 4. Pour *Mise à jour des méta-données*, choisir les champs à rafraîchir et si les valeurs existantes doivent être écrasées.
 5. Lancer la synchro et suivre la barre de progression. À la fin, consulter le tableau de résultats — et le rapport de filtres SmartAlbums, si des filtres nécessitent une intervention manuelle.
 
-**Après une synchro ayant supprimé des photos**, purger manuellement le cache utilisateur depuis `Outils > Maintenance > « Purger le cache utilisateur »` 
+Le cache utilisateur est purgé automatiquement après une synchro ayant supprimé des albums ou des photos, pour qu'aucune photo représentative supprimée ne reste en cache.

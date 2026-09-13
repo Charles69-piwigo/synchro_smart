@@ -52,5 +52,5 @@ A packaged release zip can also be generated with `generate-release-zip.ps1` (Po
 4. For *Metadata update*, choose which fields to refresh and whether existing values should be overwritten.
 5. Start the sync and watch the progress bar. When it finishes, review the results table — and the SmartAlbums filter report, if any filters need manual attention.
 
-**After a run that deleted photos**, manually purge the user cache from `Tools > Maintenance > "Purge user cache"` 
+The user cache is purged automatically after a run that deleted albums or photos, so a removed photo's cached representative never lingers.
 

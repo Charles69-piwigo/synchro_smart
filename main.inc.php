@@ -10,6 +10,16 @@ Author: Charles69
 //============= VERSIONS ============================================
 /*
 
+version 1.3a - 13/09/2026
+  Filtres SmartAlbums : plus d'analyse ni de faux signalement "a revoir"
+  quand le plugin SmartAlbums n'est pas actif (sa table peut survivre a une
+  desactivation), ni pour un filtre dont le SmartAlbum proprietaire a
+  lui-meme ete supprime (filtre mort, jamais evalue, rien a reparer).
+  Purge automatique du cache utilisateur en fin de synchro (dirs/files) des
+  qu'au moins une categorie ou une photo a ete supprimee, comme le fait la
+  synchro native de Piwigo, pour eviter qu'une photo representative
+  supprimee reste en cache (TypeError fatal sur la page d'accueil).
+
 version 1.3 - 10/09/2026
   Renommage synchro_fast -> synchro_smart (id du plugin) pour signaler la
   prise en charge des SmartAlbums introduite en 1.2. Aucune evolution

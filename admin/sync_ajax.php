@@ -410,6 +410,16 @@ elseif ($action === 'chunk')
         }
       }
 
+      // categories et/ou photos supprimees pendant cette synchro : purge le
+      // cache utilisateur, comme le fait admin.php pour la page native
+      // site_update. Sans ca, USER_CACHE_CATEGORIES_TABLE.user_representative_picture_id
+      // peut continuer a pointer vers une photo supprimee -> TypeError fatal
+      // (SrcImage null) sur la page d'accueil de la galerie.
+      if ($state['counters']['deleted_images'] > 0 || $state['counters']['deleted_categories'] > 0)
+      {
+        invalidate_user_cache();
+      }
+
       unset($_SESSION[SYNCSMART_SESSION_KEY]);
     }
     else

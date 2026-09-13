@@ -1,9 +1,9 @@
 <?php
 /*
 Plugin Name: synchro_smart
-Version: 1.3
+Version: auto
 Description: Synchronisation par lots (anti-timeout 504) avec selection d'albums, et prise en charge des SmartAlbums (id de categories non recycles, filtres "album" recales ou signales lors des renommages). Ajoute un onglet "Synchro Smart" dans Outils > Synchroniser.
-Plugin URI:
+Plugin URI: https://piwigo.org/ext/extension_view.php?eid=1111
 Author: Charles69
 */
 
